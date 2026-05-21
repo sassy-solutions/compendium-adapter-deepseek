@@ -1,14 +1,14 @@
 // -----------------------------------------------------------------------
-// <copyright file="SampleOptionsTests.cs" company="Sassy Solutions">
+// <copyright file="DeepseekOptionsTests.cs" company="Sassy Solutions">
 //     Copyright (c) 2026 Sassy Solutions. Licensed under the MIT License.
 //     See LICENSE in the project root for license information.
 // </copyright>
 // -----------------------------------------------------------------------
 
 using System.ComponentModel.DataAnnotations;
-using Compendium.Adapters.Sample.Options;
+using Compendium.Adapters.Deepseek.Options;
 
-namespace Compendium.Adapters.Sample.Tests.Options;
+namespace Compendium.Adapters.Deepseek.Tests.Options;
 
 /// <summary>
 /// Demonstrates the convention every adapter test follows :
@@ -20,13 +20,13 @@ namespace Compendium.Adapters.Sample.Tests.Options;
 ///   <item>FluentAssertions only — never <c>Assert.*</c></item>
 /// </list>
 /// </summary>
-public class SampleOptionsTests
+public class DeepseekOptionsTests
 {
     [Fact]
-    public void SampleOptions_Defaults_AreSensible()
+    public void DeepseekOptions_Defaults_AreSensible()
     {
         // Arrange / Act
-        var options = new SampleOptions();
+        var options = new DeepseekOptions();
 
         // Assert
         options.Timeout.Should().Be(TimeSpan.FromSeconds(30));
@@ -40,13 +40,13 @@ public class SampleOptionsTests
     [InlineData("not-a-url", "key", false)]
     [InlineData("https://api.example.com", "", false)]
     [InlineData("https://api.example.com", "valid-key", true)]
-    public void SampleOptions_DataAnnotations_ValidateAsExpected(
+    public void DeepseekOptions_DataAnnotations_ValidateAsExpected(
         string baseUrl,
         string apiKey,
         bool expectedValid)
     {
         // Arrange
-        var options = new SampleOptions { BaseUrl = baseUrl, ApiKey = apiKey };
+        var options = new DeepseekOptions { BaseUrl = baseUrl, ApiKey = apiKey };
         var ctx = new ValidationContext(options);
         var results = new List<ValidationResult>();
 
@@ -58,9 +58,9 @@ public class SampleOptionsTests
     }
 
     [Fact]
-    public void SampleOptions_SectionName_IsCanonical()
+    public void DeepseekOptions_SectionName_IsCanonical()
     {
         // Assert
-        SampleOptions.SectionName.Should().Be("Compendium:Adapters:Sample");
+        DeepseekOptions.SectionName.Should().Be("Compendium:Adapters:Deepseek");
     }
 }
