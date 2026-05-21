@@ -1,117 +1,189 @@
-# `template-compendium-adapter-dotnet`
+# Compendium.Adapters.DeepSeek
 
-Starter for a new **Compendium** adapter (.NET 9, single-vendor, lives in its own repository).
+[![CI](https://github.com/sassy-solutions/compendium-adapter-deepseek/actions/workflows/ci.yml/badge.svg)](https://github.com/sassy-solutions/compendium-adapter-deepseek/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/Compendium.Adapters.DeepSeek.svg)](https://www.nuget.org/packages/Compendium.Adapters.DeepSeek)
 
-Aligns with [ADR 0006](../../docs/adr/0006-multi-repo-adapter-split.md) (split heavy adapters into per-adapter repositories). Encodes the [`compendium-test-author`](.claude/skills/compendium-test-author/SKILL.md) skill so `/tests` and `/coverage` work out of the box.
+Direct API adapter that wires [DeepSeek's](https://api-docs.deepseek.com/) chat and reasoning
+models into the [Compendium](https://github.com/sassy-solutions/compendium) `IAIProvider`
+abstraction. DeepSeek's wire surface is OpenAI-compatible — this adapter implements the same
+contract as `compendium-adapter-openai` so swapping providers is a one-line change.
 
-## What you get
-
-```
-.
-├── src/Compendium.Adapters.Deepseek/        — the adapter project (rename Deepseek → <Vendor>)
-│   ├── DependencyInjection/
-│   │   └── ServiceCollectionExtensions.cs
-│   ├── Options/DeepseekOptions.cs
-│   └── DeepseekAdapter.cs                   — illustrates the IAdapter (or any port) shape
-├── tests/Unit/Compendium.Adapters.Deepseek.Tests/
-│   ├── DependencyInjection/ServiceCollectionExtensionsTests.cs
-│   ├── Options/DeepseekOptionsTests.cs
-│   └── GlobalUsings.cs
-├── .github/workflows/ci.yml               — build + test + 90% coverage gate
-├── .claude/skills/compendium-test-author/SKILL.md
-├── .claude/commands/{tests,coverage}.md
-├── .config/dotnet-tools.json              — pins ReportGenerator
-├── Directory.Build.props
-├── Directory.Packages.props               — central package management
-├── Compendium.Adapters.Deepseek.sln
-├── global.json                            — pins .NET 9 SDK
-└── LICENSE
+```csharp
+services.AddCompendiumDeepSeek(opt =>
+{
+    opt.ApiKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY")!;
+    opt.DefaultModel = DeepSeekOptions.DefaultChatModel;  // "deepseek-chat"
+});
 ```
 
-## Conventions enforced (copy from Compendium framework)
+## What's supported
 
-| Aspect | Choice |
-|---|---|
-| Test framework | xUnit 2.9.3 |
-| Assertions | FluentAssertions 6.12.1 — never `Assert.*` |
-| Mocks | NSubstitute 5.1.0 — never Moq |
-| Coverage | coverlet.collector 6.0.2 + ReportGenerator (local tool) |
-| Result pattern | `Result<T>` from `Compendium.Abstractions` (NuGet) |
-| Async | `async Task` + cancellation tokens — never `Thread.Sleep`, never `.Result` |
-| Test naming | `{SUT}Tests` / `{Method}_{Scenario}_{Expected}` |
-| Test layout | AAA explicit (`// Arrange / // Act / // Assert`) |
-| File header | Sassy Solutions copyright block |
-| HTTP mocking (when applicable) | `RichardSzalay.MockHttp` 7.0.0 |
-| Container fixtures (integration) | `Testcontainers` 4.11.0 + `IAsyncLifetime` + `[RequiresDockerFact]` |
-| CI gate | ≥ 90 % line coverage on the unit-testable surface (DB-bound types may be exempted with documented reason) |
+| Surface                       | Status | Notes                                                                 |
+|-------------------------------|:------:|-----------------------------------------------------------------------|
+| Chat completions (`/chat/completions`) |  yes   | Default model `deepseek-chat`.                                        |
+| Streaming SSE                 |  yes   | `StreamCompleteAsync`. `usage` arrives on the final chunk.            |
+| Tool / function calling       |  yes   | OpenAI-compatible. `deepseek-chat` only — see notes below.            |
+| Reasoning model (`deepseek-reasoner`) |  yes   | `reasoning_content` exposed via `GetReasoningContent()`.              |
+| List models / health check    |  yes   | `/models`.                                                            |
+| Embeddings                    |  no    | DeepSeek does not expose a hosted embeddings endpoint.                |
+| Vision                        |  no    | Not a DeepSeek capability today.                                      |
 
-## How to scaffold a new adapter
+`EmbedAsync` returns `Result.Failure(Error.Unavailable("AI.Unsupported", …))` instead of throwing —
+plug `compendium-adapter-openai` or `compendium-adapter-mistral` for embeddings.
+
+## Quick start
 
 ```bash
-# 1. Pick a vendor name (use PascalCase: Stripe, PostgreSQL, Redis…)
-export VENDOR=Stripe
-
-# 2. Copy the template to a new directory next to your Compendium clone
-cp -r templates/adapter-dotnet ../compendium-adapter-${VENDOR,,}
-cd ../compendium-adapter-${VENDOR,,}
-
-# 3. Find-and-replace placeholders (BSD sed on macOS — adapt for GNU sed)
-find . -type f \( -name '*.cs' -o -name '*.csproj' -o -name '*.sln' -o -name '*.md' -o -name '*.yml' -o -name '*.json' -o -name '*.props' \) -exec sed -i '' -e "s/Deepseek/${VENDOR}/g" -e "s/deepseek/${VENDOR,,}/g" {} +
-
-# 4. Rename folders/files
-git mv src/Compendium.Adapters.Deepseek              src/Compendium.Adapters.${VENDOR}
-git mv src/Compendium.Adapters.${VENDOR}/Compendium.Adapters.Deepseek.csproj \
-       src/Compendium.Adapters.${VENDOR}/Compendium.Adapters.${VENDOR}.csproj
-git mv src/Compendium.Adapters.${VENDOR}/DeepseekAdapter.cs                   \
-       src/Compendium.Adapters.${VENDOR}/${VENDOR}Adapter.cs
-git mv src/Compendium.Adapters.${VENDOR}/Options/DeepseekOptions.cs           \
-       src/Compendium.Adapters.${VENDOR}/Options/${VENDOR}Options.cs
-
-git mv tests/Unit/Compendium.Adapters.Deepseek.Tests           tests/Unit/Compendium.Adapters.${VENDOR}.Tests
-git mv tests/Unit/Compendium.Adapters.${VENDOR}.Tests/Compendium.Adapters.Deepseek.Tests.csproj \
-       tests/Unit/Compendium.Adapters.${VENDOR}.Tests/Compendium.Adapters.${VENDOR}.Tests.csproj
-git mv tests/Unit/Compendium.Adapters.${VENDOR}.Tests/Options/DeepseekOptionsTests.cs \
-       tests/Unit/Compendium.Adapters.${VENDOR}.Tests/Options/${VENDOR}OptionsTests.cs
-
-mv Compendium.Adapters.Deepseek.sln Compendium.Adapters.${VENDOR}.sln
-
-# 5. Initialise git and verify build
-git init
-git add .
-dotnet build -c Release
-dotnet test  -c Release
+dotnet add package Compendium.Adapters.DeepSeek
 ```
 
-## What you still need to do per repo
+```csharp
+using Compendium.Abstractions.AI;
+using Compendium.Abstractions.AI.Models;
+using Compendium.Adapters.DeepSeek.Configuration;
+using Compendium.Adapters.DeepSeek.DependencyInjection;
+using Compendium.Adapters.DeepSeek.Reasoning;
 
-After scaffolding :
+var services = new ServiceCollection();
+services.AddLogging();
+services.AddCompendiumDeepSeek(opt =>
+{
+    opt.ApiKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY")!;
+});
 
-- **Author the actual adapter code.** Replace `DeepseekAdapter` with the real implementation of whatever port (`IEventStore`, `IIdentityProvider`, `IBillingProvider`, `IEmailSender`, …) you're filling.
-- **NuGet publishing.** Add `NUGET_API_KEY` to repo secrets ; the included `release.yml` (TODO — add when first needed) packs and pushes on `v*` tags.
-- **Branch protection.** Require `build-test` (CI), at least one review, no force-push to `main`.
-- **Renovate or Dependabot.** Renovate config at `renovate.json` — track Compendium NuGets so a framework release auto-PRs the adapter. Dependabot for npm-style scheduled dep bumps.
-- **Integration tests** (optional but recommended for adapters with external systems). Add `tests/Integration/Compendium.Adapters.<Vendor>.IntegrationTests/` with `Testcontainers` if needed. Keep them out of the unit CI job.
+await using var sp = services.BuildServiceProvider();
+var provider = sp.GetRequiredService<IAIProvider>();
 
-## Local-dev mode (when you're modifying both framework and adapter)
+var result = await provider.CompleteAsync(new CompletionRequest
+{
+    Model = DeepSeekOptions.DefaultChatModel,
+    Messages = [ Message.User("Explain hexagonal architecture in one paragraph.") ]
+});
 
-Edit `Directory.Packages.props` to add a project reference instead of the NuGet :
-
-```xml
-<ItemGroup Condition="'$(LinkLocalCompendium)' == 'true'">
-  <PackageReference Remove="Compendium.Abstractions" />
-  <ProjectReference Include="../compendium/src/Abstractions/Compendium.Abstractions/Compendium.Abstractions.csproj" />
-</ItemGroup>
+Console.WriteLine(result.IsSuccess ? result.Value.Content : result.Error.Message);
 ```
 
-Then `dotnet build -p:LinkLocalCompendium=true`.
+For a reasoning-model walkthrough see [`samples/01-reasoning-loop`](samples/01-reasoning-loop/Program.cs).
 
-## Common pitfalls (read before pushing)
+## Options
 
-- **Broken `Compendium.sln`** : every `Project("{...}")` MUST have a matching `EndProject` on the next non-empty line, and every GUID listed in `Project(...)` MUST appear in the `GlobalSection(ProjectConfigurationPlatforms)` (4 `.Debug|Any CPU.*` + `.Release|Any CPU.*` lines). Linux CI is strict ; macOS is lenient and will mask this bug. **Always** use `dotnet sln add` / `dotnet sln remove` instead of hand-editing the sln. Verify with `dotnet sln list && dotnet build -c Release` before pushing.
-- **`gh pr merge` from a detached worktree** : fails opaquely with "could not determine current branch". Always run merges from a checkout that's on a named branch (typically `main`).
-- **MinVer tag prefix** : pinned to `v` in `Directory.Build.props`. The first tag must continue the version sequence of the package's previous releases (e.g. if `Compendium.Adapters.Stripe` was last published as `1.0.0-preview.8` from the framework, the first tag here is `v1.0.0-preview.9`).
-- **No `--no-verify`, no `--force-push`** (use `--force-with-lease` instead). No version bumps in `Directory.Packages.props` outside of Renovate-managed PRs.
-- **Skill / commands** : `.claude/skills/compendium-test-author/SKILL.md` and `.claude/commands/{tests,coverage}.md` ship pre-baked. `/tests` and `/coverage` work out of the box in Claude Code.
+Configure via `IConfiguration` (binds the `DeepSeek` section) or an `Action<DeepSeekOptions>`:
+
+| Option                       | Default                          | Notes                                                                                                 |
+|------------------------------|----------------------------------|-------------------------------------------------------------------------------------------------------|
+| `ApiKey`                     | _required_                       | Personal API key from <https://platform.deepseek.com>.                                                |
+| `BaseUrl`                    | `https://api.deepseek.com`       | DeepSeek-hosted endpoint. China-hosted — see EU caveats below.                                       |
+| `DefaultModel`               | `deepseek-chat`                  | `deepseek-chat` (V3, general-purpose) or `deepseek-reasoner` (R1, exposes reasoning trace).            |
+| `DefaultTemperature`         | `0.7`                            | Default sampling temperature.                                                                         |
+| `DefaultMaxTokens`           | `4096`                           | Applied when the request omits `MaxTokens`.                                                           |
+| `TimeoutSeconds`             | `180`                            | DeepSeek reasoner traces can run for minutes — keep generous.                                         |
+| `RetryAttempts`              | `3`                              | Forwarded into the standard `Microsoft.Extensions.Http.Resilience` pipeline.                          |
+| `InlineReasoningInContent`   | `false`                          | When `true`, prepend `<think>…</think>` to `Content` for reasoner responses.                          |
+| `EnableLogging`              | `false`                          | Verbose request/response logging at `Debug` level. Off by default — request bodies can carry secrets. |
+
+The `Microsoft.Extensions.Http.Resilience` standard pipeline is wired with relaxed timeouts
+(attempt: 180 s, total: 600 s) so reasoner traces aren't cut off mid-thought.
+
+## Model selection — `deepseek-chat` vs `deepseek-reasoner`
+
+| Model                | Class            | Strengths                                                | Tool calling | Reasoning trace |
+|----------------------|------------------|----------------------------------------------------------|:------------:|:---------------:|
+| `deepseek-chat`      | DeepSeek-V3      | Fast, cheap, broad knowledge. Default.                   | yes          | no              |
+| `deepseek-reasoner`  | DeepSeek-R1      | Multi-step reasoning, math, code, logic puzzles.         | no (today)    | yes             |
+
+Pick `deepseek-chat` for chat assistants, summarisation, drafting, content classification.
+Pick `deepseek-reasoner` when the question benefits from a visible chain-of-thought — debugging,
+proof-style answers, code review.
+
+## Reasoning-content handling
+
+`deepseek-reasoner` returns two assistant fields: `content` (the final answer) and
+`reasoning_content` (the chain-of-thought trace). The Compendium AI abstractions (1.0.1) do not
+have a first-class reasoning channel, so this adapter surfaces it as follows:
+
+### Non-streaming (`CompleteAsync`)
+
+The full reasoning trace lands in `CompletionResponse.Metadata` under the well-known key
+`deepseek.reasoning_content`. Read it via the helper:
+
+```csharp
+using Compendium.Adapters.DeepSeek.Reasoning;
+
+var result = await provider.CompleteAsync(request);
+var reasoning = result.Value.GetReasoningContent(); // null when the model is deepseek-chat
+var answer = result.Value.Content;
+```
+
+Set `DeepSeekOptions.InlineReasoningInContent = true` to additionally prepend the trace into
+`Content` wrapped in `<think>…</think>` tags. Useful when piping through code that only inspects
+`Content` (logging sinks, audit trails).
+
+### Streaming (`StreamCompleteAsync`)
+
+`CompletionChunk` in the 1.0.1 abstractions has no side-channel `Metadata` dictionary. To stay
+within the contract the adapter defaults to **dropping pure-reasoning chunks** from the stream so
+`ContentDelta` carries only the visible answer. The final aggregated trace is not available
+mid-stream in default mode — use `CompleteAsync` for full visibility.
+
+When `InlineReasoningInContent = true`, reasoning deltas are streamed as `<think>token</think>`
+fragments in `ContentDelta` so a downstream parser can still partition the stream.
+
+> **Future work**: when Compendium 1.1 ships `CompletionChunk.Metadata`, we'll surface deltas via
+> `chunk.GetReasoningContentDelta()` so consumers can multiplex the two streams cleanly.
+
+## Cost at a glance
+
+DeepSeek's hosted pricing is dramatically lower than the western incumbents:
+
+| Provider / model        | Input  $/M tokens | Output $/M tokens | Cached input $/M |
+|-------------------------|-------------------|-------------------|------------------|
+| `deepseek-chat` (V3)    | $0.27             | $1.10             | $0.07            |
+| `deepseek-reasoner` (R1)| $0.55             | $2.19             | $0.14            |
+| OpenAI `gpt-4o`         | $2.50             | $10.00            | $1.25            |
+| OpenAI `gpt-4o-mini`    | $0.15             | $0.60             | $0.075           |
+| OpenAI `o1`             | $15.00            | $60.00            | $7.50            |
+| Anthropic `claude-4.5-sonnet` | $3.00       | $15.00            | $0.30            |
+
+Numbers from the providers' public pricing pages at the time of release; they can change without
+notice. Use the [DeepSeek pricing page](https://api-docs.deepseek.com/quick_start/pricing) for the
+authoritative current figures.
+
+The implication: `deepseek-reasoner` is roughly **25–30× cheaper than `o1`** for comparable
+reasoning depth. That changes the unit economics of agent loops that fire many reasoning calls
+per task.
+
+## EU / data-residency caveats
+
+The hosted DeepSeek endpoint at `api.deepseek.com` is operated from China. Before adopting it for
+production:
+
+- **GDPR**: a transfer of EU personal data to DeepSeek constitutes an international transfer to a
+  country without an EU adequacy decision. You need standard contractual clauses + a TIA, and you
+  should be prepared to lose the ability to use the service if a regulator objects.
+- **Sensitive content**: do not send PII, source code under NDA, or regulated data (health,
+  finance, public-sector) through the hosted API without legal sign-off.
+- **Self-hosting**: DeepSeek's open-weight models (DeepSeek-V3, DeepSeek-R1) can be self-hosted on
+  EU infrastructure (e.g. via vLLM or Ollama). Use `compendium-adapter-ollama` or a custom
+  `BaseUrl` pointing at a vLLM endpoint to keep data in-region.
+
+## Production checklist
+
+- [ ] `ApiKey` injected via `IConfiguration` / `KeyVault` / Compendium secret store — **never**
+      committed to source.
+- [ ] Set a request `UserId` so DeepSeek can attribute requests to a specific tenant for abuse
+      throttling.
+- [ ] Decide whether to inline reasoning into `Content` — affects what downstream consumers see.
+- [ ] Override `TimeoutSeconds` for tight SLOs; default `180s` is sized for `deepseek-reasoner`.
+- [ ] Wire an integration test gated on `DEEPSEEK_API_KEY` so a future model rename trips CI.
+- [ ] Review data-residency before sending EU personal data.
+- [ ] Monitor `Result.Error.Code = "AI.RateLimitExceeded"` and back off accordingly — the standard
+      resilience pipeline retries on 5xx but does not on 429 by default.
+
+## Versioning
+
+Released as `Compendium.Adapters.DeepSeek` on NuGet. Version is computed from git tags by
+[MinVer](https://github.com/adamralph/minver); first tag `v1.0.0-preview.0` is cut by the
+orchestrator after this PR lands.
 
 ## License
 
